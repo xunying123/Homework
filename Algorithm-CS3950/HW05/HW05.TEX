@@ -1,0 +1,29 @@
+\documentclass[UTF8]{ctexart}
+\usepackage{mathtools,wallpaper}
+\usepackage{lmodern}
+\usepackage{t1enc}
+\usepackage{pagecolor}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{graphicx}
+\renewcommand{\(}{\left(}
+\renewcommand{\)}{\right)}
+\begin{document}
+\title{算法设计 HW05}  
+\author{吴硕 522030910094}
+\maketitle
+
+\paragraph{Q1} 
+Just like Ford-Fulkerson algorithm, we can use the following algorithm to solve the problem.
+
+First, we can make a new graph $G' = (V, E', \omega ')$, where for every edge $(u,v) \in E$, we add two edges $(u,v)$ and $(v,u)$, and set $\omega '(u,v) = - \omega '(v,u) = \omega(u,v)$.
+
+
+
+
+\paragraph{Q5}
+
+difficulty: Q1 and Q2 are 3, Q3 and Q4 are 5
+Collaborator: 蒋松霖
+\end{document}
