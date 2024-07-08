@@ -1,4 +1,4 @@
-STUID := 522030910094
+STUID := 
 
 # ----- DO NOT MODIFY -----
 
