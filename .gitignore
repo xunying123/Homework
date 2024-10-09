@@ -11,7 +11,7 @@ _*
 *.fdb_latexmk
 *.synctex.gz
 .gdbinit
-
+private.py
 compile_commands.*
 .vscode
 .cache
