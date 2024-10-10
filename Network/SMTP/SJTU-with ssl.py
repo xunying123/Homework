@@ -52,7 +52,7 @@ clientSocket.send(data_command.encode())
 recv = clientSocket.recv(1024).decode()
 print("DATA Response:", recv)
 
-message = "From: 111\nTo: 222\nSubject: 333\n\n444"
+message = "From: XZY_is_my_son\nTo: xun_ying_is_my_dad\nSubject: only test\n\n this is a test"
 clientSocket.send((message + "\r\n.\r\n").encode())
 recv = clientSocket.recv(1024).decode()
 print("Message Sending Response:", recv)
