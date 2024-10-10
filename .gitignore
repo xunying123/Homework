@@ -12,6 +12,7 @@ _*
 *.synctex.gz
 .gdbinit
 private.py
+temp.py
 compile_commands.*
 .vscode
 .cache
