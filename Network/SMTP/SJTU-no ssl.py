@@ -38,7 +38,7 @@ recv = clientSocket.recv(1024).decode()
 print("DATA Response:", recv)
 
 #step 5: Send Message
-message = "From: test\nTo: test\nSubject: 放假通知\n\n 后天放假，望周知"
+message = f"From: yyu@apex.sjtu.cn\nTo: {to_mail}\nSubject: 放假通知\n\n 后天放假，望周知"
 clientSocket.send((message + "\r\n.\r\n").encode())
 recv = clientSocket.recv(1024).decode()
 print("Message Sending Response:", recv)
