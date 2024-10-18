@@ -1,86 +1,70 @@
-import socket 
-PROXY_HOST = '127.0.0.1'
-PROXY_PORT = 8080
+import os
+from urllib.parse import urlparse
+from socket import *
 
-proxy_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-proxy_socket.bind((PROXY_HOST, PROXY_PORT))
-proxy_socket.listen(10)
-print(f'Proxy server is listening on {PROXY_HOST}:{PROXY_PORT}')
+# Create a server socket, bind it to a port and start listening
+tcpSerSock = socket(AF_INET, SOCK_STREAM)
+tcpSerSock.bind(('', 8080))  # 绑定到本地端口 8888
+tcpSerSock.listen(10)
 
-while 1: 
+while True:
+    # Start receiving data from the client
+    print('Ready to serve...')
+    tcpCliSock, addr = tcpSerSock.accept()
+    print('Received a connection from:', addr)
 
-    client_socket, client_address = proxy_socket.accept()
-    print(f'Accepted connection from {client_address}')
-    request_data = client_socket.recv(8192)
-    message = request_data.decode('utf-8')
-    print(message) 
-    fileExist = "false" 
-    filename = message.split()[1].partition("/")[2]
+    # Get the client request message
+    message = tcpCliSock.recv(1024).decode()  # 接收客户端消息
+    if not message:
+        tcpCliSock.close()
+        continue
 
-    filetouse = "/" + filename
-    print("Final path to use:", filetouse)
+    print(message)
+    # Parse the client's request URL
+    try:
+        url = message.split()[1]  # 提取URL
+        parsed_url = urlparse(url)  # 使用urlparse解析URL
+        hostn = parsed_url.netloc  # 提取主机名
+        path = parsed_url.path  # 提取路径
 
-    try: 
-        # Check wether the file exist in the cache 
-        f = open(filetouse[1:], "rb") 
-        outputdata = f.readlines() 
-        fileExist = "true" 
-        # ProxyServer finds a cache hit and generates a response message 
-        proxy_socket.send(b"HTTP/1.0 200 OK\r\n") 
-        proxy_socket.send(b"Content-Type:text/html\r\n") 
+        if path == '/':
+            path = '/index.html'  # 默认文件路径
 
-        for data in outputdata:
-            proxy_socket.send(data)  # 从缓存中读取文件并发送给客户端
-# 关闭 socket 连接
-        proxy_socket.close()
-        print('Read from cache') 
-# Error handling for file not found in cache 
-    except IOError: 
-        if fileExist == "false": 
-# Create a socket on the proxyserver 
-            c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            hostn = filename.replace("www.","",1) 
-            print(hostn) 
-            try: 
-# Connect to the socket to port 80 
-                c.connect((hostn, 80))
-# Connect to the socket to port 80 
-# Fill in start. 
-# Fill in end. 
-# Create a temporary file on this socket and ask port 80 
-# for the file requested by the client 
-                fileobj = c.makefile('r', 0) 
-                fileobj.write("GET "+"http://" + filename + " HTTP/1.0\n\n") 
-# Read the response into buffer 
-# Fill in start. 
-                response = b""
-                while True:
-                    data = client_socket.recv(4096)
-                    if not data:
-                        break
-                    response += data
+        print('Host:', hostn)
+        print('Path:', path)
 
-                c.close()
-# Fill in end. 
-# Create a new file in the cache for the requested file. 
-# Also send the response in the buffer to client socket 
-# and the corresponding file in the cache 
-                response_str = response.decode("utf-8", errors="ignore")
-                headers, _, body = response_str.partition("\r\n\r\n")  # 分离响应头和正文
-                tmpFile = open("./" + filename,"wb") 
-                tmpFile.write(body.encode())
-                tmpFile.close()
-                client_socket.send(response)
-                client_socket.close()
-# Fill in start. 
-# Fill in end. 
-            except: 
-                print("Illegal request") 
-        else: 
-# HTTP response message for file not found 
-# Fill in start. 
-# Fill in end. 
-# Close the client and the server sockets 
-            client_socket.close()
-# Fill in start. 
-# Fill in end. 
+    except IndexError:
+        tcpCliSock.close()
+        continue
+    fileExist = "FAlse"
+    if fileExist == "false":
+        # Create a socket on the proxy server
+        c = socket(AF_INET, SOCK_STREAM)
+        try:
+            # Connect to the target server
+            c.connect((hostn, 80))
+                
+                # 创建向目标服务器发送的请求
+            request = f"GET {path} HTTP/1.0\r\nHost: {hostn}\r\n\r\n"
+            c.sendall(request.encode())
+
+            while True:
+                buffer = c.recv(4096)
+                if len(buffer) > 0:
+                    tcpCliSock.sendall(buffer)  # 发送数据到客户端
+                else:
+                    break  # 当读取不到更多数据时，跳出循环
+
+                
+            tcpCliSock.sendall(buffer)
+
+
+        except Exception as e:
+            print("Error:", e)
+            tcpCliSock.send(b"HTTP/1.0 404 Not Found\r\n")
+            tcpCliSock.send(b"Content-Type:text/html\r\n\r\n")
+            tcpCliSock.send(b"<html><body><h1>404 Not Found</h1></body></html>\r\n")
+
+        c.close()
+
+    tcpCliSock.close()
