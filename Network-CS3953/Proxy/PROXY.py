@@ -1,8 +1,10 @@
 import os
 from urllib.parse import urlparse
 import socket
-import time
+import threading
+import select
 
+# 对于CONNECT与GET以外的请求的处理
 def Forward(tcpCliSock, message):
     # 提取目标主机和路径
     target_host = message.split()[1]
@@ -50,12 +52,14 @@ def Forward(tcpCliSock, message):
     finally:
         tcpCliSock.close()
 
+# 对于GET请求的处理
 def GET(tcpCliSock, message):
     try:
-        url = message.split()[1]  # 提取URL
-        parsed_url = urlparse(url)  # 使用urlparse解析URL
-        hostn = parsed_url.netloc  # 提取主机名
-        path = parsed_url.path  # 提取路径
+        # 提取目标主机和路径
+        url = message.split()[1]  
+        parsed_url = urlparse(url)  
+        hostn = parsed_url.netloc  
+        path = parsed_url.path  
 
         if path == '/':
             path = '/index.html'  # 默认文件路径
@@ -79,12 +83,10 @@ def GET(tcpCliSock, message):
     print('Cache file path:', cache_file)
 
     try:
-        # Check whether the file exists in the cache
         f = open(cache_file, "rb")  # 从缓存中读取文件
         outputdata = f.readlines()
         fileExist = "true"
         
-        # ProxyServer finds a cache hit and generates a response message
         tcpCliSock.send(b"HTTP/1.0 200 OK\r\n")
         tcpCliSock.send(b"Content-Type:text/html\r\n\r\n")
 
@@ -95,10 +97,8 @@ def GET(tcpCliSock, message):
 
     except IOError:
         if fileExist == "false":
-            # Create a socket on the proxy server
             c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             try:
-                # Connect to the target server
                 c.connect((hostn, 80))
                 
                 # 创建向目标服务器发送的请求
@@ -143,87 +143,63 @@ def GET(tcpCliSock, message):
 
     tcpCliSock.close()
 
+# 对于CONNECT请求的处理
 def CONNECT(tcpCliSock, message):
-    # 解析主机和端口
+    # 解析 CONNECT 请求
     target_host_port = message.split()[1]
-    target_host, target_port = target_host_port.split(':')
-    print(f"Connecting to {target_host}:{target_port}")
+    target_host, target_port = target_host_port.split(":")
+    target_port = int(target_port)
 
     try:
-        # 与目标主机建立连接
-        target_port = int(target_port)
-        server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_sock.connect((target_host, target_port))
+        # 建立与目标服务器的连接
+        target_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        target_sock.connect((target_host, target_port))
 
-        # 向客户端返回连接成功的消息
+        # 向客户端发送200连接成功的响应
         tcpCliSock.send(b"HTTP/1.1 200 Connection Established\r\n\r\n")
 
-        # 将客户端和目标服务器的套接字设置为非阻塞模式
-        tcpCliSock.setblocking(False)
-        server_sock.setblocking(False)
-
-        # 设定超时时间（单位：秒）
-        timeout = 3
-        last_activity_time = time.time()
-
-        # 在客户端与目标服务器之间转发数据
+        # 使用select进行双向数据转发
+        sockets = [tcpCliSock, target_sock]
         while True:
-            current_time = time.time()
-            if current_time - last_activity_time > timeout:
-                print("Connection timed out due to inactivity.")
-                break  # 超时，退出循环
-
-            try:
-                # 从客户端接收数据并发送到服务器
-                client_data = tcpCliSock.recv(4096)
-                if client_data:
-                    print(f"Received {len(client_data)} bytes from client")
-                    server_sock.sendall(client_data)
-                    last_activity_time = current_time  # 更新计时器
-                elif client_data == b'':  # 客户端关闭连接
-                    print("Client closed connection.")
+            readable, _, _ = select.select(sockets, [], [])
+            for sock in readable:
+                data = sock.recv(8192)
+                if not data:  # 如果连接关闭，退出循环
                     break
-            except BlockingIOError:
-                pass
-            except ConnectionAbortedError:
-                print("Client connection aborted.")
-                break
-            except ConnectionResetError:
-                print("Client connection reset.")
-                break
-
-            try:
-                # 从服务器接收数据并发送到客户端
-                server_data = server_sock.recv(4096)
-                if server_data:
-                    print(f"Received {len(server_data)} bytes from server")
-                    tcpCliSock.sendall(server_data)
-                    last_activity_time = current_time  # 更新计时器
-                elif server_data == b'':  # 服务器关闭连接
-                    print("Server closed connection.")
-                    break
-            except BlockingIOError:
-                pass
-            except ConnectionAbortedError:
-                print("Server connection aborted.")
-                break
-            except ConnectionResetError:
-                print("Server connection reset.")
-                break
-
+                if sock is tcpCliSock:
+                    print("length of data from client:", len(data))
+                    target_sock.send(data)
+                else:
+                    print("length of data from server:", len(data))
+                    tcpCliSock.send(data)
     except Exception as e:
-        print(f"Error in CONNECT request handling: {e}")
+        print(f"Error handling CONNECT request: {e}")
         tcpCliSock.send(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
-
     finally:
-        # 关闭连接
-        print("Closing connection")
         tcpCliSock.close()
-        server_sock.close()
+
+def handle_client(tcpCliSock):
+    try:
+        message = tcpCliSock.recv(1024).decode()  # 接收客户端消息
+        if not message:
+            tcpCliSock.close()
+            return
+
+        print(message)
+
+        if message.startswith("GET"):
+            GET(tcpCliSock, message)
+        elif message.startswith("CONNECT"):
+            CONNECT(tcpCliSock, message)
+        else:
+            Forward(tcpCliSock, message)
+    except Exception as e:
+        print(f"Error handling client request: {e}")
+        tcpCliSock.close()
 
 # Create a server socket, bind it to a port and start listening
 tcpSerSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-tcpSerSock.bind(('', 8080))  # 绑定到本地端口 8888
+tcpSerSock.bind(('', 8080))  # 绑定到本地端口 8080
 tcpSerSock.listen(10)
 
 while True:
@@ -232,23 +208,7 @@ while True:
     tcpCliSock, addr = tcpSerSock.accept()
     print('Received a connection from:', addr)
 
-    # Get the client request message
-    message = tcpCliSock.recv(1024).decode()  # 接收客户端消息
-    if not message:
-        tcpCliSock.close()
-        continue
-
-    print(message)
-
-    if message.startswith("GET"):
-        GET(tcpCliSock, message)
-        continue
-    elif message.startswith("CONNECT"):
-        CONNECT(tcpCliSock, message)
-        continue
-    else:
-        Forward(tcpCliSock, message)
-        continue
-
-    # Parse the client's request URL
+    # 为每个连接启动一个新的线程
+    client_thread = threading.Thread(target=handle_client, args=(tcpCliSock,))
+    client_thread.start()
     
