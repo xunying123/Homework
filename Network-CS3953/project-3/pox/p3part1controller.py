@@ -60,7 +60,7 @@ class Part1Controller(object):
         # put switch 1 rules here
         allow_msg = of.ofp_flow_mod()
         allow_msg.match = of.ofp_match()  # 匹配所有流量
-        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_FLOOD))
+        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_NORMAL))
         self.connection.send(allow_msg)
 
 
@@ -68,14 +68,14 @@ class Part1Controller(object):
         # put switch 2 rules here
         allow_msg = of.ofp_flow_mod()
         allow_msg.match = of.ofp_match()  # 匹配所有流量
-        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_FLOOD))
+        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_NORMAL))
         self.connection.send(allow_msg)
 
     def s3_setup(self):
         # put switch 3 rules here
         allow_msg = of.ofp_flow_mod()
         allow_msg.match = of.ofp_match()  # 匹配所有流量
-        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_FLOOD))
+        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_NORMAL))
         self.connection.send(allow_msg)
 
     def cores21_setup(self):
@@ -87,7 +87,7 @@ class Part1Controller(object):
 
         allow_msg = of.ofp_flow_mod()
         allow_msg.match = of.ofp_match()  # 匹配所有流量
-        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_FLOOD))
+        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_NORMAL))
         self.connection.send(allow_msg)
 
     def dcs31_setup(self):
@@ -99,7 +99,7 @@ class Part1Controller(object):
 
         allow_msg = of.ofp_flow_mod()
         allow_msg.match = of.ofp_match()  # 匹配所有流量
-        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_FLOOD))
+        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_NORMAL))
         self.connection.send(allow_msg)
 
 
