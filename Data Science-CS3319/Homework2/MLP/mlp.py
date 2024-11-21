@@ -26,7 +26,8 @@ class MLP(nn.Module):
     def __init__(self, input_size=310, num_classes=3):
         super(MLP, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(input_size, 128), nn.ReLU(),
+            nn.Linear(input_size, 256), nn.ReLU(),
+            nn.Linear(256, 128), nn.ReLU(),
             nn.Linear(128, 64), nn.ReLU(),
             nn.Linear(64, 32), nn.ReLU(),
             nn.Linear(32, num_classes), nn.Softmax(dim=1)
@@ -36,7 +37,7 @@ class MLP(nn.Module):
         return self.model(x)
 
 # 训练函数
-def train_model(model, train_data, train_labels, criterion, optimizer, epochs=50):
+def train_model(model, train_data, train_labels, criterion, optimizer, epochs):
     model.train()
     for _ in range(epochs):
         optimizer.zero_grad()
@@ -70,12 +71,13 @@ def main(data_path):
         optimizer = optim.Adam(model.parameters(), lr=0.001)
 
         # 训练和测试
-        train_model(model, X_train, y_train, criterion, optimizer, epochs=50)
+        train_model(model, X_train, y_train, criterion, optimizer, epochs=250)
         acc = evaluate_model(model, X_test, y_test)
         results.append(acc)
         print(f"Fold Accuracy: {acc:.2f}")
 
     print(f"Mean Accuracy: {np.mean(results):.2f}")
+    print(f"Std Accuracy {np.std(results):.2f}")
 
 # 运行
 main("dataset")
