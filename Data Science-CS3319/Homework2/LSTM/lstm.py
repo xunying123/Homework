@@ -8,15 +8,14 @@ from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.metrics import accuracy_score
 
 # 定义RNN模型
-class RNNModel(nn.Module):
+class RNN(nn.Module):
     def __init__(self, input_size=310, hidden_size=128, num_layers=2, num_classes=3):
-        super(RNNModel, self).__init__()
-        self.rnn = nn.RNN(
+        super(RNN, self).__init__()
+        self.rnn = nn.LSTM(
             input_size=1,  # 每次输入一个特征
             hidden_size=hidden_size,  # 隐藏层大小
-            num_layers=num_layers,  # RNN层数
-            batch_first=True,  # 输入形状为 (batch, seq, feature)
-            nonlinearity='tanh'  # RNN的激活函数，可以是 'tanh' 或 'relu'
+            num_layers=num_layers,  # LSTM层数
+            batch_first=True  # 输入形状为 (batch, seq, feature)
         )
         self.fc = nn.Sequential(
             nn.Linear(hidden_size, 128), nn.ReLU(),
@@ -27,7 +26,7 @@ class RNNModel(nn.Module):
     def forward(self, x):
         # RNN输入需要形状 (batch, seq_len, feature)，这里是 (batch, 310, 1)
         x = x.unsqueeze(-1)  # 添加最后一维 (batch, 310, 1)
-        _, hn = self.rnn(x)  # hn 为最后一个时间步的隐藏状态
+        _, (hn, _) = self.rnn(x)  # hn[-1] 为最后一层的隐藏状态
         out = self.fc(hn[-1])  # hn[-1] 的形状为 (batch, hidden_size)
         return out
 
@@ -84,7 +83,7 @@ def evaluate_model(model, test_loader, device):
     return accuracy_score(torch.cat(all_labels), torch.cat(all_predictions))
 
 # 主流程
-def main_rnn(data_path, batch_size=64, epochs=100):
+def main_rnn_flat(data_path, batch_size=64, epochs=100):
     # 加载数据
     X, y, groups = load_data_flat(data_path)
     logo = LeaveOneGroupOut()
@@ -100,7 +99,7 @@ def main_rnn(data_path, batch_size=64, epochs=100):
         train_loader, test_loader = get_dataloaders(X_train, y_train, X_test, y_test, batch_size)
 
         # 初始化RNN模型和优化器
-        model = RNNModel(input_size=310, hidden_size=128, num_layers=2, num_classes=len(torch.unique(y))).to(device)
+        model = RNN(input_size=310, hidden_size=128, num_layers=2, num_classes=len(torch.unique(y))).to(device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
 
@@ -116,4 +115,4 @@ def main_rnn(data_path, batch_size=64, epochs=100):
 
 # 运行
 if __name__ == "__main__":
-    main_rnn("dataset", batch_size=64, epochs=100)
+    main_rnn_flat("dataset", batch_size=64, epochs=100)
