@@ -1,118 +1,100 @@
 import os
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-from sklearn.model_selection import LeaveOneGroupOut
+from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import accuracy_score
+import torch
+from torch import nn
+from torch.utils.data import DataLoader, TensorDataset
 
-# 定义RNN模型
-class RNN(nn.Module):
-    def __init__(self, input_size=310, hidden_size=128, num_layers=2, num_classes=3):
-        super(RNN, self).__init__()
-        self.rnn = nn.LSTM(
-            input_size=1,  # 每次输入一个特征
-            hidden_size=hidden_size,  # 隐藏层大小
-            num_layers=num_layers,  # LSTM层数
-            batch_first=True  # 输入形状为 (batch, seq, feature)
-        )
-        self.fc = nn.Sequential(
-            nn.Linear(hidden_size, 128), nn.ReLU(),
-            nn.Linear(128, num_classes),
-            nn.Softmax(dim=1)
-        )
+dataset_path = "dataset"
 
+time_steps = 3  
+features = 310  
+hidden_size = 128  
+num_classes = 3  
+num_epochs = 50 
+batch_size = 32
+learning_rate = 0.001
+
+subjects_data = []
+subjects_labels = []
+
+for subject_folder in sorted(os.listdir(dataset_path)):
+    subject_path = os.path.join(dataset_path, subject_folder)
+    data = np.load(os.path.join(subject_path, "data.npy"))  
+    labels = np.load(os.path.join(subject_path, "label.npy"))  
+
+    data = data.reshape(data.shape[0], -1)
+    
+    data_mean = np.mean(data, axis=0, keepdims=True)
+    data_std = np.std(data, axis=0, keepdims=True)
+    data_std[data_std == 0] = 1  
+    data = (data - data_mean) / data_std
+
+    sequences = []
+    sequence_labels = []
+    for i in range(len(data) - time_steps + 1):
+        sequences.append(data[i:i + time_steps]) 
+        sequence_labels.append(labels[i + time_steps - 1])  
+
+    subjects_data.append(np.array(sequences))  
+    subjects_labels.append(np.array(sequence_labels))
+
+label_encoder = LabelEncoder()
+for i in range(len(subjects_labels)):
+    subjects_labels[i] = label_encoder.fit_transform(subjects_labels[i])
+
+class EmotionRNN(nn.Module):
+    def __init__(self, input_size, hidden_size, num_classes):
+        super(EmotionRNN, self).__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
+        self.fc = nn.Linear(hidden_size, num_classes)
+        
     def forward(self, x):
-        # RNN输入需要形状 (batch, seq_len, feature)，这里是 (batch, 310, 1)
-        x = x.unsqueeze(-1)  # 添加最后一维 (batch, 310, 1)
-        _, (hn, _) = self.rnn(x)  # hn[-1] 为最后一层的隐藏状态
-        out = self.fc(hn[-1])  # hn[-1] 的形状为 (batch, hidden_size)
+        out, _ = self.lstm(x)  
+        out = self.fc(out[:, -1, :])  
         return out
 
-# 数据加载
-def load_data_flat(data_path):
-    all_data, all_labels, groups = [], [], []
-    for group_id, folder in enumerate(sorted(os.listdir(data_path))):
-        folder_path = os.path.join(data_path, folder)
-        if os.path.isdir(folder_path):
-            data = np.load(os.path.join(folder_path, "data.npy"))  # 形状 (样本数, 62, 5)
-            labels = np.load(os.path.join(folder_path, "label.npy"))
+results = []
 
-            # 展平通道维度: (样本数, 310)
-            data = data.reshape(data.shape[0], -1)
+for test_subject in range(len(subjects_data)):
+    x_test = subjects_data[test_subject]
+    y_test = subjects_labels[test_subject]
+    x_train = np.vstack([subjects_data[i] for i in range(len(subjects_data)) if i != test_subject])
+    y_train = np.hstack([subjects_labels[i] for i in range(len(subjects_data)) if i != test_subject])
 
-            all_data.append(data)
-            all_labels.append(labels)
-            groups.extend([group_id] * len(data))
-    return torch.tensor(np.vstack(all_data), dtype=torch.float32), \
-           torch.tensor(np.hstack(all_labels), dtype=torch.long), \
-           torch.tensor(groups, dtype=torch.long)
-
-# 创建DataLoader
-def get_dataloaders(X_train, y_train, X_test, y_test, batch_size=64):
-    train_dataset = TensorDataset(X_train, y_train)
-    test_dataset = TensorDataset(X_test, y_test)
+    train_dataset = TensorDataset(torch.tensor(x_train, dtype=torch.float32), torch.tensor(y_train, dtype=torch.long))
+    test_dataset = TensorDataset(torch.tensor(x_test, dtype=torch.float32), torch.tensor(y_test, dtype=torch.long))
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-    return train_loader, test_loader
 
-# 训练函数
-def train_model(model, train_loader, criterion, optimizer, epochs, device):
-    model.train()
-    for _ in range(epochs):
-        for batch_data, batch_labels in train_loader:
-            batch_data, batch_labels = batch_data.to(device), batch_labels.to(device)
+    model = EmotionRNN(features, hidden_size, num_classes)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    for epoch in range(num_epochs):
+        model.train()
+        for x_batch, y_batch in train_loader:
             optimizer.zero_grad()
-            outputs = model(batch_data)
-            loss = criterion(outputs, batch_labels)
+            outputs = model(x_batch)  
+            loss = criterion(outputs, y_batch)
             loss.backward()
             optimizer.step()
 
-# 测试函数
-def evaluate_model(model, test_loader, device):
     model.eval()
-    all_predictions, all_labels = [], []
+    all_preds = []
     with torch.no_grad():
-        for batch_data, batch_labels in test_loader:
-            batch_data = batch_data.to(device)
-            outputs = model(batch_data)
-            predictions = torch.argmax(outputs, dim=1)
-            all_predictions.append(predictions.cpu())
-            all_labels.append(batch_labels.cpu())
-    return accuracy_score(torch.cat(all_labels), torch.cat(all_predictions))
+        for x_batch, _ in test_loader:
+            outputs = model(x_batch)
+            _, preds = torch.max(outputs, 1)
+            all_preds.append(preds)
+    
+    all_preds = torch.cat(all_preds).numpy()
+    accuracy = accuracy_score(y_test, all_preds)
+    results.append(accuracy)
+    print(accuracy)
 
-# 主流程
-def main_rnn_flat(data_path, batch_size=64, epochs=100):
-    # 加载数据
-    X, y, groups = load_data_flat(data_path)
-    logo = LeaveOneGroupOut()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    results = []
+mean_accuracy = np.mean(results)
+std_accuracy = np.std(results)
 
-    # 交叉验证
-    for train_idx, test_idx in logo.split(X, y, groups=groups):
-        X_train, X_test = X[train_idx], X[test_idx]
-        y_train, y_test = y[train_idx], y[test_idx]
-
-        # 创建DataLoader
-        train_loader, test_loader = get_dataloaders(X_train, y_train, X_test, y_test, batch_size)
-
-        # 初始化RNN模型和优化器
-        model = RNN(input_size=310, hidden_size=128, num_layers=2, num_classes=len(torch.unique(y))).to(device)
-        criterion = nn.CrossEntropyLoss()
-        optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-        # 训练和测试
-        train_model(model, train_loader, criterion, optimizer, epochs, device)
-        acc = evaluate_model(model, test_loader, device)
-        results.append(acc)
-        print(f"Fold Accuracy: {acc:.2f}")
-
-    # 输出整体结果
-    print(f"Mean Accuracy: {np.mean(results):.2f}")
-    print(f"Std Accuracy: {np.std(results):.2f}")
-
-# 运行
-if __name__ == "__main__":
-    main_rnn_flat("dataset", batch_size=64, epochs=100)
+print(f'Mean = {mean_accuracy:.4f}, Std = {std_accuracy:.4f}')
