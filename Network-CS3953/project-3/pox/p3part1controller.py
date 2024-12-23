@@ -81,13 +81,33 @@ class Part1Controller(object):
     def cores21_setup(self):
         # put core switch rules here
         msg = of.ofp_flow_mod()
-        msg.match = of.ofp_match(dl_type=0x800, nw_src=IPS["hnotrust"], nw_proto=1)  # ICMP协议号为1
-        msg.actions = []  # 丢弃 ICMP 包
+        msg.match = of.ofp_match(dl_type=0x800, nw_src=IPS["hnotrust"], nw_proto=1)
+        msg.actions = []
         self.connection.send(msg)
 
         allow_msg = of.ofp_flow_mod()
-        allow_msg.match = of.ofp_match()  # 匹配所有流量
-        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_NORMAL))
+        allow_msg.match = of.ofp_match(dl_type=0x800, nw_dst=IPS["h10"]) 
+        allow_msg.actions.append(of.ofp_action_output(port=1))
+        self.connection.send(allow_msg)
+
+        allow_msg = of.ofp_flow_mod()
+        allow_msg.match = of.ofp_match(dl_type=0x800, nw_dst=IPS["h20"])
+        allow_msg.actions.append(of.ofp_action_output(port=2))
+        self.connection.send(allow_msg)
+
+        allow_msg = of.ofp_flow_mod()
+        allow_msg.match = of.ofp_match(dl_type=0x800, nw_dst=IPS["h30"]) 
+        allow_msg.actions.append(of.ofp_action_output(port=3))
+        self.connection.send(allow_msg)
+
+        allow_msg = of.ofp_flow_mod()
+        allow_msg.match = of.ofp_match(dl_type=0x800, nw_dst=IPS["serv1"])
+        allow_msg.actions.append(of.ofp_action_output(port=4))
+        self.connection.send(allow_msg)
+
+        allow_msg = of.ofp_flow_mod()
+        allow_msg.match = of.ofp_match(dl_type=0x800, nw_dst=IPS["hnotrust"])
+        allow_msg.actions.append(of.ofp_action_output(port=5))
         self.connection.send(allow_msg)
 
     def dcs31_setup(self):
@@ -128,6 +148,8 @@ class Part1Controller(object):
         print(
             "Unhandled packet from " + str(self.connection.dpid) + ":" + packet.dump()
         )
+
+        log.info(event.port)
 
 
 def launch():

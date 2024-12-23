@@ -6,6 +6,8 @@
 from pox.core import core
 import pox.openflow.libopenflow_01 as of
 from pox.lib.addresses import IPAddr, IPAddr6, EthAddr
+from pox.lib.packet.ethernet import ethernet, ETHER_BROADCAST
+from pox.lib.packet.arp import arp
 
 log = core.getLogger()
 
@@ -58,23 +60,58 @@ class Part2Controller(object):
 
     def s1_setup(self):
         # put switch 1 rules here
-        pass
+
+        msg = of.ofp_flow_mod()
+        msg.match = of.ofp_match(dl_type=0x800, nw_src=IPS["hnotrust"], nw_proto=1)
+        msg.actions = []
+        self.connection.send(msg)
+    
+        allow_msg = of.ofp_flow_mod()
+        allow_msg.match = of.ofp_match() 
+        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_NORMAL))
+        self.connection.send(allow_msg)
 
     def s2_setup(self):
         # put switch 2 rules here
-        pass
+
+        msg = of.ofp_flow_mod()
+        msg.match = of.ofp_match(dl_type=0x800, nw_src=IPS["hnotrust"], nw_proto=1) 
+        msg.actions = [] 
+        self.connection.send(msg)
+
+        allow_msg = of.ofp_flow_mod()
+        allow_msg.match = of.ofp_match()
+        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_NORMAL))
+        self.connection.send(allow_msg)
 
     def s3_setup(self):
         # put switch 3 rules here
-        pass
+
+        msg = of.ofp_flow_mod()
+        msg.match = of.ofp_match(dl_type=0x800, nw_src=IPS["hnotrust"], nw_proto=1)
+        msg.actions = []
+        self.connection.send(msg)
+
+        allow_msg = of.ofp_flow_mod()
+        allow_msg.match = of.ofp_match()
+        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_NORMAL))
+        self.connection.send(allow_msg)
 
     def cores21_setup(self):
-        # put core switch rules here
-        pass
+        self.ip_mac_mapping = {}
 
     def dcs31_setup(self):
         # put datacenter switch rules here
-        pass
+        
+        msg = of.ofp_flow_mod()
+        msg.match = of.ofp_match(dl_type=0x800, nw_src=IPS["hnotrust"])
+        msg.actions = []  
+        self.connection.send(msg)
+
+        allow_msg = of.ofp_flow_mod()
+        allow_msg.match = of.ofp_match() 
+        allow_msg.actions.append(of.ofp_action_output(port=of.OFPP_NORMAL))
+        self.connection.send(allow_msg)
 
     # used in part 2 to handle individual ARP packets
     # not needed for part 1 (USE RULES!)
@@ -91,17 +128,76 @@ class Part2Controller(object):
         Packets not handled by the router rules will be
         forwarded to this method to be handled by the controller
         """
-
-        packet = event.parsed  # This is the parsed packet data.
+        packet = event.parsed  
         if not packet.parsed:
-            log.warning("Ignoring incomplete packet")
+            print("Ignoring incomplete packet")
             return
 
         packet_in = event.ofp  # The actual ofp_packet_in message.
-        print(
-            "Unhandled packet from " + str(self.connection.dpid) + ":" + packet.dump()
-        )
 
+        if packet.type != 0x86DD:
+            log.info("这有一个没处理的新包")
+            log.info(packet)
+            log.info(packet.payload)
+
+        if packet.type == ethernet.ARP_TYPE:
+            arp_packet = packet.payload
+            log.info("这是一个ARP包")   
+            self.update_mac_ip_mapping(arp_packet.protosrc, arp_packet.hwsrc, event.port)
+            if arp_packet.opcode == arp.REQUEST:
+                self.handle_arp_response(arp_packet, event)
+
+    def update_mac_ip_mapping(self, ip, mac,port):
+        if ip not in self.ip_mac_mapping:
+            self.ip_mac_mapping[ip] = {'port': port, 'mac': mac}
+            self.update_flow_table(ip, mac, port)
+            log.info(f"更新： IP-MAC mapping: {ip} -> mac {mac} port {port}")
+
+    def update_flow_table(self, ip, mac, port):
+        msg = of.ofp_flow_mod()
+
+        msg.match = of.ofp_match(dl_type=0x800, nw_dst=IPAddr(ip))
+
+        action1 = of.ofp_action_dl_addr.set_dst(mac) 
+        msg.actions.append(action1)
+
+        action2 = of.ofp_action_dl_addr.set_src(self.connection.ports[port].hw_addr) 
+        msg.actions.append(action2)
+    
+        action = of.ofp_action_output(port=port)
+        msg.actions.append(action)
+        self.connection.send(msg)
+        log.info(f"添加表项Flow rule installed for {ip} -> on port {port}")
+        log.info(self.ip_mac_mapping)
+
+    def handle_arp_response(self, arp_packet, event):
+        port = event.port
+        mac = event.connection.ports[port].hw_addr
+        arp_reply = arp()
+        arp_reply.opcode = arp.REPLY
+        arp_reply.hwsrc = mac
+        arp_reply.hwdst = arp_packet.hwsrc
+        arp_reply.protosrc = arp_packet.protodst
+        arp_reply.protodst = arp_packet.protosrc
+
+        eth = ethernet(type=ethernet.ARP_TYPE)
+        eth.src = mac 
+        eth.dst = arp_packet.hwsrc
+        eth.payload = arp_reply
+
+        packet_out = eth.pack()
+
+        msg = of.ofp_packet_out()
+        msg.data = packet_out
+        action = of.ofp_action_output(port=port)
+        msg.actions.append(action)
+
+
+        self.connection.send(msg)
+
+        log.info(f"ARP回复已发送：{arp_reply}")
+        log.info("ARP答复")
+        log.info(arp_reply)
 
 def launch():
     """
