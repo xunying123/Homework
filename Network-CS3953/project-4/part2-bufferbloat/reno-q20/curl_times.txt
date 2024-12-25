@@ -1,0 +1,1 @@
+Average download time: 0.00011046296296296298 seconds and standard deviation 3.128111071424969e-05
