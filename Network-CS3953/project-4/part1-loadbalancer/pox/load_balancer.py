@@ -132,11 +132,19 @@ class proxy_load_balancer (object):
         # log.info("Stats received: %s" % (str(flow_stats_to_list(event.stats))))
         pass
 
+    """
+    TODO: Send an ARP reply for ARP requests for virtual IPs; for IP packets
+        sent to a virtual IP, select a host and install
+        connection-specific rules to rewrite IP and MAC addresses;
+        ignore all other packets
+    """
     def _handle_PacketIn (self, event):
         frame = event.parse()
+        # ARP request
         if frame.type == frame.ARP_TYPE:
             # log.info("Handling ARP Request from %s" % (frame.next.protosrc))
             self.arp_handler(frame, event)
+        # Service request
         elif frame.type == frame.IP_TYPE:
             log.info("Handling Service request from %s" % (frame.next.srcip))
             self.service_handler(frame, event)
@@ -181,9 +189,16 @@ class proxy_load_balancer (object):
     Service packets should be balanced between all servers of the pool
     """
     def service_handler (self, frame, event):
+        """
+        TODO: Chooses the next server according to the scheduling method
+        """
         def choose_server ():
+
+            # Random choice
             if SCHED_METHOD is SCHED_RANDOM:
                 chosen_server = random.choice(list(SV_HOSTS.values()))
+
+            # Round Robin choice
             elif SCHED_METHOD is SCHED_ROUNDROBIN:
                 if not hasattr(self, 'last_server_idx'):
                     self.last_server_idx = 0
@@ -199,9 +214,13 @@ class proxy_load_balancer (object):
 
         client_host = get_host_by_ip(CL_HOSTS, packet.srcip)
 
+        # The path must be set from end to start of frame direction, i.e. firstly the server-to-client
+        # and then client-to-server, in order to avoid the frame being received by the server
+        # and then sent to the client before the switch has updated all the flow rules
+        # TODO: Server -> Client path
         msg = of.ofp_flow_mod()
         msg.idle_timeout = FLOW_TIMEOUT
-        msg.match.dl_type = 0x0800
+        msg.match.dl_type = 0x0800            # IPv4
         msg.match.nw_src = chosen_server.ip
         msg.match.nw_dst = client_host.ip
         msg.match.dl_src = chosen_server.mac
@@ -213,7 +232,14 @@ class proxy_load_balancer (object):
         msg.actions.append(of.ofp_action_output(port=client_host.port))
 
         self.connection.send(msg)
+        # Match the packets
+        # If matches then:
+        # - Rewrite the src IP and MAC to the SWITCH MAC and IP
+        # - Rewrite the dst MAC to the client one (incoming frames from servers also have MAC dst = Switch fake MAC)
+        # - Forward to the client
+        # Send OF msg to update flow rules
 
+        # TODO: Client -> Server path
         msg = of.ofp_flow_mod()
         msg.idle_timeout = FLOW_TIMEOUT
         msg.data = event.ofp
