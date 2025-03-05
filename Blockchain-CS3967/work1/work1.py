@@ -48,6 +48,7 @@ class RSASignature:
     def sign(self, message):
         hashed_message = int.from_bytes(hashlib.sha256(message.encode()).digest(), byteorder='big')
 
+        signature = pow(hashed_message, self.d, self.n)
 
         return signature
 
@@ -68,8 +69,12 @@ class ElGamalEncryption:
 
     # 加密
     def elgamal_encrypt(self,plain_text):
+        
         M = int.from_bytes(plain_text.encode(), byteorder='big')
-
+        k = random.randint(2, self.p - 2)
+        C1 = pow(self.g, k, self.p)
+        s = pow(self.y, k, self.p)
+        C2 = (M * s) % self.p
 
         return C1, C2
 
@@ -81,7 +86,7 @@ class ElGamalEncryption:
 
 # 请填充 RSASignature.sign 和ElGamalEncryption.elgamal_encrypt 中的代码，对"姓名+学号"组成的消息进行RSA签名和ElGamal加密，并能顺利通过签名验证、解密。
 rsa = RSASignature()
-message = "name(pinyin)+student_id"
+message = "wushuo522030910094"
 signature = rsa.sign(message)
 print("Signature:", signature)
 
